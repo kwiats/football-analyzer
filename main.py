@@ -1,17 +1,17 @@
 import argparse
+import queue
 import sys
-import threading
 
 import torch
-from matplotlib import pyplot as plt
-from matplotlib.animation import FuncAnimation
 from ultralytics import YOLO
 
-from plots.plot_utils import create_pitch, update_plot
-from recorder.screen_recorder import start_recording, set_recording
+from config import QUEUE_MAX_SIZE, YOLO_MODEL_PATH
+from detector.object_detector import ObjectDetector, display_processed_frames
+from recorder.screen_recorder import ScreenRecorder
 from windows.window_utils import list_windows, get_window_bounds
 
 player_positions = []
+
 
 def display_menu():
     print("Menu:")
@@ -73,26 +73,33 @@ def main():
         print("Using CPU")
         device = torch.device("cpu")
 
-    model = YOLO("yolov8n.pt").to(device)
+    model = YOLO(YOLO_MODEL_PATH).to(device)
+    recorder = ScreenRecorder(args.output_file, region)
+    processed_frame_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+
+    detector = ObjectDetector(model, recorder.frame_queue, processed_frame_queue)
 
     print("Commands: 'r' to start recording, 's' to stop recording, 'q' to exit.")
     while True:
         command = input("Enter command: ").strip().lower()
         if command == 'r':
-            if not set_recording(True):
-                print("Recording started...")
-                start_recording(args.output_file, args.display_screen, model, region)
+            recorder.start_recording()
+            detector.start_processing()
+            display_processed_frames(detector.processed_frame_queue)
         elif command == 's':
-            if set_recording(False):
-                print("Recording stopped...")
+            recorder.stop_recording()
+            detector.stop_processing()
         elif command == 'q':
+            recorder.stop_recording()
+            detector.stop_processing()
             print("Exiting...")
             break
 
 
 if __name__ == "__main__":
-    fig, ax = create_pitch()
-    ani = FuncAnimation(fig, update_plot, fargs=(ax, player_positions), interval=66, cache_frame_data=False)  # approximately 15 frames per second
+    # fig, ax = create_pitch()
+    # ani = FuncAnimation(fig, update_plot, fargs=(ax, player_positions), interval=66,
+    #                     cache_frame_data=False)
     # plt.show()
 
     try:
