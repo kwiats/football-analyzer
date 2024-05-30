@@ -6,7 +6,7 @@ import cv2
 import mss
 import numpy as np
 
-from config import VIDEO_FORMAT, RECORDER_FPS, QUEUE_MAX_SIZE
+from config import VIDEO_FORMAT, RECORDER_FPS, QUEUE_MAX_SIZE, SAVE_FILE_OUTPUT
 
 
 class ScreenRecorder:
@@ -35,31 +35,41 @@ class ScreenRecorder:
 
     def record_screen(self):
         monitor = self.setup_monitor()
-        out = self.setup_video_writer(monitor)
+        out = None
+        if SAVE_FILE_OUTPUT:
+            out = self.setup_video_writer(monitor)
 
         with mss.mss() as sct:
             self.recording = True
             start_time = time.time()
             while self.recording:
                 frame = self.capture_frame(sct, monitor)
+
                 try:
                     self.frame_queue.put(frame, timeout=1)
                 except queue.Full:
                     print("Queue is full, dropping frame")
                     pass
+                if out:
+                    out.write(frame)
 
-                out.write(frame)
-
-            out.release()
+            if out:
+                out.release()
             cv2.destroyAllWindows()
-            print(start_time - time.time())
+            print("Recording stopped. Duration:", time.time() - start_time)
 
     def start_recording(self):
         recording_thread = threading.Thread(target=self.record_screen)
         recording_thread.start()
         return recording_thread
 
-    def stop_recording(self, recording_thread):
+    def stop_recording(self):
+        print("Stopping recording...")
         self.recording = False
-        recording_thread.join()
+        # recording_thread.join()
         self.frame_queue.put(None)
+
+    def save_output_to_file(self, frame):
+        cv2.imwrite('output.png', frame)
+        print("Frame saved to output.png")
+        return

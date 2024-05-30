@@ -4,8 +4,7 @@ import time
 
 import cv2
 
-from config import DETECTED_SCREEN_NAME
-from detector.detect_objects import detect_objects
+from config import DETECTED_SCREEN_NAME, YOLO_MODEL_LOGS
 
 
 class ObjectDetector:
@@ -17,8 +16,29 @@ class ObjectDetector:
         self.start_time = None
         self.frame_count = 0
 
+    def detect_objects(self, frame):
+        player_positions = []
+        results = self.model(frame, verbose=YOLO_MODEL_LOGS)
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = box.xyxy.tolist()[0]
+                conf = box.conf.item()
+                cls = box.cls.item()
+                label = f"{self.model.names[int(box.cls.item())]} {box.conf.item():.2f}"
+
+                if cls == 0:  # Player
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    player_positions.append((center_x, center_y))
+
+                frame = cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                frame = cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0),
+                                    2)
+
+        return frame, player_positions
+
     def detect_objects_in_frame(self, frame):
-        detected_frame, _ = detect_objects(frame, self.model)
+        detected_frame, _ = self.detect_objects(frame)
         return detected_frame
 
     def process_frame(self, frame):
@@ -76,17 +96,8 @@ class ObjectDetector:
         return processing_thread
 
     def stop_processing(self, processing_thread: threading.Thread = None):
+        print("Stopping recording...")
         self.processing = False
         if processing_thread:
             processing_thread.join()
-
-
-def display_processed_frames(processed_frame_queue):
-    while True:
-        frame = processed_frame_queue.get()
-        if frame is None:
-            break
-        cv2.imshow(DETECTED_SCREEN_NAME, frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-    cv2.destroyAllWindows()
+        self.processed_frame_queue.put(None)
