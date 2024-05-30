@@ -9,6 +9,7 @@ def get_window_bounds(app_name):
             return (x, y, width, height)
     return None
 
+
 def list_windows():
     window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
     windows = [(window.get('kCGWindowOwnerName', ''), window.get('kCGWindowName', '')) for window in window_list]
