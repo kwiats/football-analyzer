@@ -449,3 +449,10 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks,flask,django
+
+*.jpeg
+*.jpg
+*.png
+*.gif
+*.mp4
+*.pt
