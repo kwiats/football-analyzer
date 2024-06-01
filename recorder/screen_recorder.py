@@ -1,79 +1,75 @@
+import queue
+import threading
 import time
 
 import cv2
 import mss
 import numpy as np
 
-from detector.detect_objects import detect_objects
-
-recording = False
+from config import VIDEO_FORMAT, RECORDER_FPS, QUEUE_MAX_SIZE, SAVE_FILE_OUTPUT
 
 
-def set_recording(value):
-    global recording
-    recording = value
+class ScreenRecorder:
+    def __init__(self, output_file, region):
+        self.output_file = output_file
+        self.region = region
+        self.recording = False
+        self.frame_queue = queue.Queue(
+            maxsize=QUEUE_MAX_SIZE)  ## niewiem czy to jest ok mozeliwe ze trzeba bedzie zmienic na 1024 * 1024 * 1024
 
+    def setup_monitor(self):
+        return {
+            "top": int(self.region[1]),
+            "left": int(self.region[0]),
+            "width": int(self.region[2]),
+            "height": int(self.region[3])
+        }
 
-def record_screen(output_file, display_screen, model, region):
-    global recording
-    global player_positions
-    with mss.mss() as sct:
-        monitor = {"top": int(region[1]), "left": int(region[0]), "width": int(region[2]), "height": int(region[3])}
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_file, fourcc, 30.0, (monitor["width"], monitor["height"]))
+    def setup_video_writer(self, monitor, video_format=VIDEO_FORMAT):
+        fourcc = cv2.VideoWriter_fourcc(*video_format)
+        return cv2.VideoWriter(self.output_file, fourcc, RECORDER_FPS, (monitor["width"], monitor["height"]))
 
-        start_time = time.time()
-        frame_count = 0
-        fps = 0
-        fps_time = time.time()
-        one_sec_frame = 0
+    def capture_frame(self, sct, monitor):
+        img = np.array(sct.grab(monitor))
+        return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-        while recording:
-            frame_start_time = time.time()
-            img = np.array(sct.grab(monitor))
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    def record_screen(self):
+        monitor = self.setup_monitor()
+        out = None
+        if SAVE_FILE_OUTPUT:
+            out = self.setup_video_writer(monitor)
 
-            detected_frame, player_positions = detect_objects(frame, model)
-            # detected_frame = frame
-            out.write(frame)
+        with mss.mss() as sct:
+            self.recording = True
+            start_time = time.time()
+            while self.recording:
+                frame = self.capture_frame(sct, monitor)
 
-            frame_count += 1
-            if time.time() - fps_time >= 1:
-                fps = frame_count
-                frame_count = 0
-                fps_time = time.time()
-            print(f"FPS: {fps}")
+                try:
+                    self.frame_queue.put(frame, timeout=1)
+                except queue.Full:
+                    print("Queue is full, dropping frame")
+                    pass
+                if out:
+                    out.write(frame)
 
-            cv2.rectangle(detected_frame, (5, 5), (150, 40), (0, 0, 0), -1)
-            cv2.putText(detected_frame, f"FPS: {fps}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            if out:
+                out.release()
+            cv2.destroyAllWindows()
+            print("Recording stopped. Duration:", time.time() - start_time)
 
-            if display_screen:
-                cv2.imshow("Screen", detected_frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+    def start_recording(self):
+        recording_thread = threading.Thread(target=self.record_screen)
+        recording_thread.start()
+        return recording_thread
 
-            elapsed_time = time.time() - start_time
-            if int(elapsed_time) > one_sec_frame:
-                process_frame(frame, elapsed_time)  # Wyciągnij i zapisz jedną klatkę na sekundę
-                one_sec_frame += 1
+    def stop_recording(self):
+        print("Stopping recording...")
+        self.recording = False
+        # recording_thread.join()
+        self.frame_queue.put(None)
 
-        out.release()
-        cv2.destroyAllWindows()
-
-
-def process_frame(frame, elapsed_time):
-    filename = f"output/frame_at_{int(elapsed_time)}.jpg"
-    cv2.imwrite(filename, frame)
-    print(f"Saved {filename}")
-
-
-def start_recording(output_file, display_screen, model, region):
-    global recording
-    recording = True
-    print('start_recording')
-    record_screen(output_file, display_screen, model, region)
-
-
-def stop_recording():
-    global recording
-    recording = False
+    def save_output_to_file(self, frame):
+        cv2.imwrite('output.png', frame)
+        print("Frame saved to output.png")
+        return
